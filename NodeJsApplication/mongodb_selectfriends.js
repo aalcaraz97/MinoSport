@@ -7,12 +7,13 @@ var MongoClient = require('mongodb').MongoClient;
 var url = "mongodb://localhost:27017/";
 
 MongoClient.connect(url, function(err, db) {
+  if (err) throw err;
+  var dbo = db.db("db_prova");
+  var myquery = { name: "omar.alshaeb" };
+  dbo.collection("users").find(myquery, { projection: { _id: 0, friends_id: 1 } }).toArray(function(err, result) {
     if (err) throw err;
-    var dbo = db.db("first_attempt");
-    dbo.createCollection("users", function(err, res) {
-        if (err) throw err;
-        console.log("Collection created!");
-        db.close();
-    });
+    console.log(result);
+    db.close();
+  });
 });
 

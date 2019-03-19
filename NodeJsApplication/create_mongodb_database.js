@@ -4,7 +4,7 @@
  * and open the template in the editor.
  */
 var MongoClient = require('mongodb').MongoClient;
-var url = "mongodb://localhost:27017/db_prova";
+var url = "mongodb://localhost:27017/first_attempt";
 
 MongoClient.connect(url, function(err, db) {
     if (err) throw err;

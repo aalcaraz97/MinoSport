@@ -13,14 +13,18 @@ MongoClient.connect(url, function(err, db) {
   dbo.collection("users").find(myquery).toArray(function(err, res) {
     if (err) throw err;
     var friends = res[0].friends_id;
-    if(friends.length === 0) friends += "adria.alcaraz";
-    else friends += ",aleix.costa";
-    var newfriend = { $set: {friends_id: friends } };
-    dbo.collection("users").updateOne(myquery, newfriend, function(err2,res2) {
+    var friend2delete = "adria.alcaraz";
+    if(friends.length > 0) {
+        var lbef = friends.length;
+        var friendsdef = friends.replace("," + friend2delete, "");
+        if(lbef === friendsdef.length) friendsdef = friends.replace(friend2delete, "");
+        var newfriend = { $set: {friends_id: friendsdef } };
+        dbo.collection("users").updateOne(myquery, newfriend, function(err2,res2) {
         if (err2) throw err2;
         console.log(newfriend.$set.friends_id + " is now your friend!");
         db.close();
-  });
+        });
+    }
 });
 });
 
