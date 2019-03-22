@@ -1,8 +1,22 @@
 {
     "name": "NodeJsApplication",
     "version": "1.0.0",
-    "keywords": ["util", "functional", "server", "client", "browser"],
+    "keywords": [
+        "util",
+        "functional",
+        "server",
+        "client",
+        "browser"
+    ],
     "author": "adri",
     "contributors": [],
-    "dependencies": {}
+    "dependencies": {
+        "express": "^4.16.4"
+    },
+    "scripts": {
+        "start": "nodemon MinoSport_Server.js"
+    },
+    "devDependencies": {
+        "nodemon": "^1.18.10"
+    }
 }
