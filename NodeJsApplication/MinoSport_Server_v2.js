@@ -20,6 +20,11 @@ MongoClient.connect(url,{useNewUrlParser: true}, function(err,client){
     if(err)
         console.log('Unable to connect. Error', err);
     else {
+        app.get('/', (request,response,next)=>{
+            response.json("estoy vivo");
+            console.log("estoy vivo");
+            response.end();
+        });
         app.post('/register',(request,response,next)=>{ //REGISTER AN USER
             
             var post_data = request.body;
@@ -55,8 +60,8 @@ MongoClient.connect(url,{useNewUrlParser: true}, function(err,client){
             db.collection('users').find({'username': username}).count(function(err, number){ 
                 if(number != 0)
                 {
-                    response.json('This username does already exist'); //if username already exists, its not added into DB
-                    console.log('This username does already exist');
+                    response.json("This username does already exist"); //if username already exists, its not added into DB
+                    console.log("This username does already exist");
                     response.end();
                 }
                 else //if username doesn't exist, insert JSON object into DB
@@ -86,8 +91,8 @@ MongoClient.connect(url,{useNewUrlParser: true}, function(err,client){
             db.collection('users').find({'username': username}).count(function(err, number){
                 if(number == 0)
                 {
-                    response.json('This username does not exist'); //if the username doesn't exist, the login is not successful
-                    console.log('This username does not exist');
+                    response.json("This username does not exist"); //if the username doesn't exist, the login is not successful
+                    console.log("This username does not exist");
                     response.end();
                 }
                 else //if username exists, we make a query to get the username's password
@@ -96,13 +101,13 @@ MongoClient.connect(url,{useNewUrlParser: true}, function(err,client){
                         
                         var user_password = user.password;
                         if(user_password == password) { 
-                           response.json('Login successful!'); //if the password introduced is the same, the login in successful
-                           console.log('Login successful!'); 
+                           response.json("Login successful!"); //if the password introduced is the same, the login in successful
+                           console.log("Login successful!"); 
                            response.end();
                         }
                         else { //if the password is incorrect, the login is incorrect
-                            response.json('Login incorrect! Please, try again');
-                           console.log('Login incorrect! Please, try again'); 
+                            response.json("Login incorrect! Please, try again");
+                           console.log("Login incorrect! Please, try again"); 
                            response.end();
                         }
                         
@@ -348,9 +353,9 @@ MongoClient.connect(url,{useNewUrlParser: true}, function(err,client){
                             });
                      });        
         
-        app.post('/search_user',(request,response,next)=>{ //SEARCH A USER IN THE DB
+        app.get('/search_user',(request,response,next)=>{ //SEARCH A USER IN THE DB
             
-            var post_data = request.body;
+            var post_data = request.query;
             
             var friend = post_data.username; //get the friend's username we want to search
             
@@ -372,8 +377,8 @@ MongoClient.connect(url,{useNewUrlParser: true}, function(err,client){
         });
     });
     
-        app.post('/list_friends', (request,response,next)=> { //LIST THE FRIENDS OF A GIVEN USER
-            var post_data = request.body;
+        app.get('/list_friends', (request,response,next)=> { //LIST THE FRIENDS OF A GIVEN USER
+            var post_data = request.query;
             
             var username = post_data.username; //get the friend's username we want to search
             
@@ -396,8 +401,8 @@ MongoClient.connect(url,{useNewUrlParser: true}, function(err,client){
                 });
         });
         
-        app.post('/list_friend_requests', (request,response,next)=> { //LIST THE FRIEND REQUESTS OF A GIVEN USER
-            var post_data = request.body;
+        app.get('/list_friend_requests', (request,response,next)=> { //LIST THE FRIEND REQUESTS OF A GIVEN USER
+            var post_data = request.query;
             
             var username = post_data.username; //get the friend's username we want to search
             
