@@ -11,7 +11,16 @@
     "author": "adri",
     "contributors": [],
     "dependencies": {
-        "express": "^4.16.4"
+        "async": "^2.6.2",
+        "body-parser": "^1.18.3",
+        "crypto": "^1.0.1",
+        "express": "^4.16.4",
+        "firebase-admin": "^7.3.0",
+        "mongodb": "^3.2.3",
+        "nodemailer": "^6.1.0",
+        "path": "^0.12.7",
+        "pug": "^2.0.3",
+        "xoauth2": "^1.2.0"
     },
     "scripts": {
         "start": "nodemon MinoSport_Server.js"

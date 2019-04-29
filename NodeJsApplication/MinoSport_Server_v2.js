@@ -8,23 +8,58 @@ var MongoClient = require('mongodb').MongoClient;
 var ObjectID = MongoDB.ObjectID;
 var express = require('express');
 var bodyParser = require('body-parser');
+var nodemailer = require('nodemailer');
+var async = require('async');
+var crypto = require('crypto');
+var path = require('path');
+var xoauth2 = require('xoauth2');
+var firebase = require('firebase-admin');
 
+//FIREBASE LOGIN AND AUTHORIZATION
+var serviceAccount = require("./minosport-936f0-firebase-adminsdk-2vq7d-e5e5f6bd1c.json");
+
+firebase.initializeApp({
+  credential: firebase.credential.cert(serviceAccount),
+  databaseURL: "https://minosport-936f0.firebaseio.com/"
+});
+
+var firebasedb = firebase.database();
+var ref = firebasedb.ref("server");
+
+//SERVER INITIALIZATION
 var app = express();
 
+//FORGOT PASSWORD LOGIN PARAMETERS
+var auth = {
+    type: 'oauth2',
+    user: 'minosport.resetpass@gmail.com',
+    clientId: '699701933302-h68q6lepajmdvvkm91qng6ldviikn5dl.apps.googleusercontent.com',
+    clientSecret: 'tWjhPNWLil_6u7OVyYxmFP7K',
+    refreshToken: '1/NwnEEEhxupYytVfhfgcSz_CGJKUh-Ql4T816NhTbvuY',
+    accessToken: 'ya29.Glv1BmZjHKrWrFVX35O5cuMJds6iiagH-udvoJdcpqUnCFhBhYQF_iefARu8Use62RAA0T9vtgKEKkSfIdcO6EHi7WwSj1NXJVe8S__BPy5-c69rgyucihipFJdn'
+};
+
+//SERVER PARAMETERS
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({extended: true}));
+app.set("view engine", "pug");
+app.set("views", path.join(__dirname, "views"));
 
+//MONGO DB URL TO CONNECT
 var url = 'mongodb://localhost:27017';
 
 MongoClient.connect(url,{useNewUrlParser: true}, function(err,client){
     if(err)
         console.log('Unable to connect. Error', err);
     else {
+        
+        // "/", it only says MinoSport
         app.get('/', (request,response,next)=>{
-            response.json("estoy vivo");
-            console.log("estoy vivo");
+            response.json("MinoSport");
+            console.log("MinoSport");
             response.end();
         });
+        
         app.post('/register',(request,response,next)=>{ //REGISTER AN USER
             
             var post_data = request.body;
@@ -34,14 +69,7 @@ MongoClient.connect(url,{useNewUrlParser: true}, function(err,client){
             var email = post_data.email; //get password from client
             var username = post_data.username; //get user from client
             
-            if(username.includes(",")) 
-            {
-                response.json('This username contains a ",". Please, try another username'); //if username already exists, its not added into DB
-                console.log('This username contains a ",". Please, try another username');
-            }
-            else {
-            
-            if(password != password2) {
+            if(password !== password2) {
                 response.json('The passwords introduced do not match'); //if username already exists, its not added into DB
                 console.log('The passwords introduced do not match');
             }
@@ -51,14 +79,16 @@ MongoClient.connect(url,{useNewUrlParser: true}, function(err,client){
                 'email': email,
                 'password': password,
                 'friends_id': [], //friends field (to be filled in later)
-                'friends_requests': []
+                'friends_requests': [],
+                'resetPasswordToken': "",
+                'resetPasswordExpires': ""
             };
             
             var db = client.db('first_attempt'); //connection to MongoDB database
             
             //connection to our collection and making a query to find if the username provided already exists
             db.collection('users').find({'username': username}).count(function(err, number){ 
-                if(number != 0)
+                if(number !== 0)
                 {
                     response.json("This username does already exist"); //if username already exists, its not added into DB
                     console.log("This username does already exist");
@@ -66,16 +96,30 @@ MongoClient.connect(url,{useNewUrlParser: true}, function(err,client){
                 }
                 else //if username doesn't exist, insert JSON object into DB
                 {
+                    db.collection('users').find({'email': email}).count(function(err, number2){
+                        if(number2 !== 0) {
+                            response.json("This email is already registered. Please try another one"); //if username already exists, its not added into DB
+                            console.log("This email is already registered. Please try another one");
+                            response.end();
+                        }
+                    else {
                     db.collection('users').insertOne(insertJson,function(err,res){
-                        response.json('Registration complete!');
-                        console.log('Registration complete!');
+                        response.json("Registration complete!");
+                        console.log("Registration complete!");
                         response.end();
                         
+                    });
+                    //firebase db user addition
+                    var usersRef = ref.child("users");
+                    usersRef.push().set({
+                        username: username,
+                        friends_id: ""
+                    });
+                    }
                     });
                 }
             });
             }
-        }
         });
         
         app.post('/login',(request,response,next)=>{ //LOGIN INTO THE APP
@@ -89,7 +133,7 @@ MongoClient.connect(url,{useNewUrlParser: true}, function(err,client){
             //
             //connection to our collection and making a query to find if the username provided is registered in the DB
             db.collection('users').find({'username': username}).count(function(err, number){
-                if(number == 0)
+                if(number === 0)
                 {
                     response.json("This username does not exist"); //if the username doesn't exist, the login is not successful
                     console.log("This username does not exist");
@@ -100,7 +144,7 @@ MongoClient.connect(url,{useNewUrlParser: true}, function(err,client){
                     db.collection('users').findOne({'username': username},function(err,user){
                         
                         var user_password = user.password;
-                        if(user_password == password) { 
+                        if(user_password === password) { 
                            response.json("Login successful!"); //if the password introduced is the same, the login in successful
                            console.log("Login successful!"); 
                            response.end();
@@ -109,6 +153,195 @@ MongoClient.connect(url,{useNewUrlParser: true}, function(err,client){
                             response.json("Login incorrect! Please, try again");
                            console.log("Login incorrect! Please, try again"); 
                            response.end();
+                        }
+                        
+                    });
+                }
+            });
+        });
+        
+            app.post('/forgot_password', function(request, response, next) {
+                        var post_data = request.body;
+                        var em = post_data.email;
+                        var db = client.db('first_attempt'); //connection to MongoDB database
+                        var token = crypto.randomBytes(64).toString('hex');  
+                        db.collection('users').findOne({ email: em }, function(err, user) {
+                                if (!user) {
+                                  response.json("This mail doesn't exist");
+                                    console.log("This mail doesn't exist"); 
+                                   response.end();
+                                }
+                                else {
+                                var resetToken = token;
+                                var resetPassExpires = Date.now() + 3600000; // 1 hour
+                                var new_field1 = { $set: {'resetPasswordToken': resetToken } };
+                                var new_field2 = { $set: {'resetPasswordExpires': resetPassExpires } };
+                                var my_query = { 'username': user.username };
+                                db.collection("users").updateOne(my_query, new_field1, function(err2, res2) {
+                                });
+                                db.collection("users").updateOne(my_query, new_field2, function(err2, res2) {
+                                });
+                                
+                              var transporter = nodemailer.createTransport({
+                                host: 'smtp.gmail.com',
+                                port: 465,
+                                secure: true,
+                                auth: auth
+                            });
+                              var mailOptions = {
+                                to: em,
+                                from: 'minosportresetpass@gmail.com',
+                                subject: 'MinoSport: Password Reset',
+                                text: 'You are receiving this because you have requested the reset of the password for your MinoSport account.\n\n' +
+                                  'Please click on the following link, or paste this into your browser to complete the process:\n\n' +
+                                  'http://localhost:8080/reset/' + token + '\n\n' +
+                                  'If you did not request this, please ignore this email and your password will remain unchanged.\n'
+                              };
+                              transporter.sendMail(mailOptions, (err, res) => {
+                                if (err) {
+                                    return console.log(err);
+                                } else {
+                                    response.json("An e-mail has been sent to " + em + " with further instructions");
+                                     console.log("An e-mail has been sent to " + em + " with further instructions");
+                                }
+                            });
+                                }
+                              });
+                            
+                       
+                        });
+                        
+         app.get('/reset/:token', function(request, response) {
+                       
+                 var db = client.db('first_attempt'); //connection to MongoDB database
+                db.collection("users").findOne({ resetPasswordToken: request.params.token, resetPasswordExpires: { $gt: Date.now() } }, function(err, user) {
+                  if (!user) {
+                      response.json("Password reset token is invalid or has expired.");
+                      console.log("Password reset token is invalid or has expired."); 
+                      response.end();
+                  }
+                  else {
+                      response.render("reset_password", {username: user.username});
+                  }
+                });
+              });
+              
+              app.post('/reset_password', function(request, response) {
+                        var post_data = request.body;
+                        var username = post_data.username;
+                        var db = client.db('first_attempt'); //connection to MongoDB database
+                  
+                            db.collection("users").findOne({username: username}, function(err,user) {
+                            db.collection("users").findOne({ resetPasswordToken: user.resetPasswordToken, resetPasswordExpires: { $gt: Date.now() } }, function(err, user2) {
+                              if (!user2) {
+                                   response.json("Password reset token is invalid or has expired");
+                                  console.log("Password reset token is invalid or has expired");
+                              }
+                              else {
+                              var password1 = post_data.password1;
+                              var password2 = post_data.password2;
+                              if(password1 !== password2){
+                                  response.writeHeader(200, {"Content-Type": "text/html"});
+                                  response.write("The introduced passwords don't match. Retry it " + "<html><body><a href='http://localhost:8080/reset_password'>here</a></body></html>");
+                                  console.log("The introduced passwords don't match");
+                                  response.end();
+                                  
+                              }
+                              else {
+                              var resetToken = "";
+                              var resetPassExpires = "";
+
+                              var new_field1 = { $set: {'resetPasswordToken': resetToken } };
+                              var new_field2 = { $set: {'resetPasswordExpires': resetPassExpires } };
+                              var new_field3 = { $set: {'password': password1 } };
+                              var my_query = { 'username': user2.username };
+                              db.collection("users").updateOne(my_query, new_field1, function(err2, res2) {
+                              });
+                              db.collection("users").updateOne(my_query, new_field2, function(err2, res2) {
+                              });
+                              db.collection("users").updateOne(my_query, new_field3, function(err2, res2) {
+                              });
+                          
+                            
+                            var smtpTransport = nodemailer.createTransport({
+                              host: 'smtp.gmail.com',
+                              port: 465,
+                              secure: true,
+                              auth: auth
+                              
+                            });
+                            var mailOptions = {
+                              to: user.email,
+                              from: 'minosportresetpass@gmail.com',
+                              subject: 'Your password has been changed',
+                              text: 'Hello,\n\n' +
+                                'This is a confirmation that the password for your account ' + user.email + ' has just been changed.\n'
+                            };
+                            smtpTransport.sendMail(mailOptions, function(err) {
+                                if(err) {
+                                      response.json("An error has ocurred");
+                                      console.log("An error has ocurred");
+                                      response.end();
+                                  }
+                                  else {
+                                      response.json("Success! Your password has been changed.");
+                                      console.log("Success! Your password has been changed.");
+                                      response.end();
+                                    }
+                            });
+                            }
+                              }
+                            });
+                            });
+                          
+
+                      });
+                      
+        app.post('/change_password',(request,response,next)=>{ //CHANGE A USER'S PASSWORD 
+            
+            var post_data = request.body;
+
+            var passwordnew = post_data.passwordnew; //get password from client
+            var passwordnew2 = post_data.passwordnew2; //get username from client
+            var oldpassword = post_data.oldpassword; //get username from client
+            var username = post_data.username; //get username from client
+            
+            var db = client.db('first_attempt'); //connection to MongoDB database
+            //
+            //connection to our collection and making a query to find if the username provided is registered in the DB
+            db.collection('users').find({'username': username}).count(function(err, number){
+                if(number === 0)
+                {
+                    response.json("This username does not exist"); //if the username doesn't exist, the change is not successful
+                    console.log("This username does not exist");
+                    response.end();
+                }
+                else //if username exists, we make a query to get the username's password
+                {
+                    db.collection('users').findOne({'username': username},function(err,user){
+                        
+                        var user_password = user.password;
+                        if(user_password !== oldpassword) { 
+                           response.json("The old password introduced is incorrect"); //if the old password introduced is different, the change is not successful
+                           console.log("The old password introduced is incorrect"); 
+                           response.end();
+                        }
+                        else { //if the old password are the same, check if the two new password are equal
+                           if(passwordnew !== passwordnew2) { 
+                           response.json("The passwords introduced do not match");
+                           console.log("The passwords introduced do not match"); 
+                           response.end();
+                            }
+                            else { //the passwords are equal
+                                var newfriend = { $set: {'password': passwordnew } };
+                                var my_query = { 'username': username };
+                                db.collection("users").updateOne(my_query, newfriend, function(err2, res2) {
+                                    response.json("Password changed successfully!");
+                                    console.log("Password changed successfully!"); 
+                                    response.end();
+                                }); //update the new password in the user
+                                
+                            }
                         }
                         
                     });
@@ -129,7 +362,7 @@ MongoClient.connect(url,{useNewUrlParser: true}, function(err,client){
             db.collection("users").findOne({'username': username},function(err, res) {
                 //connection to our collection and making a query to find if the friend's username provided exists
                 db.collection("users").find({'username': new_friend}).count(function(err, number) {
-                    if(number == 0) {
+                    if(number === 0) {
                         response.json("This username does not exist"); //if the username is not found, it finishes
                         console.log("This username does not exist");
                         response.end();
@@ -195,7 +428,7 @@ MongoClient.connect(url,{useNewUrlParser: true}, function(err,client){
             db.collection("users").findOne({'username': username},function(err, res) {
                 //connection to our collection and making a query to find if the friend's username provided exists
                 db.collection("users").find({'username': new_friend}).count(function(err, number) {
-                    if(number == 0) {
+                    if(number === 0) {
                         response.json("This username does not exist"); //if the username is not found, it finishes
                         console.log("This username does not exist");
                         response.end();
@@ -224,6 +457,23 @@ MongoClient.connect(url,{useNewUrlParser: true}, function(err,client){
                             var my_query2 = { 'username': username };
                             db.collection("users").updateOne(my_query2, newfriend2, function(err2, res2) {}); //update the list of friends from the user
                             
+                            //firebase db friend addition
+                            var b = 0;
+                            ref.child("users").once('value', function(snapshot) {
+                                var list = snapshot.val();
+                                var keys = Object.keys(list);
+                                var user_name;
+                                for (var i = 0; i < keys.length && b === 0; i++) {
+                                    var k = keys[i];
+                                    user_name = list[k].username;
+                                    if(user_name === username) b = 1;
+                                }
+                                var u = ref.child("users").child(keys[i-1]);
+                                u.update({
+                                    "friends_id": friends
+                                });
+                            });
+                            
                             db.collection("users").findOne({'username': new_friend},function(err, res3) { //now add username as a friend to new_friend
                                 var friends2 = res3.friends_id;
                                 if(friends2.includes(username)) {
@@ -239,6 +489,23 @@ MongoClient.connect(url,{useNewUrlParser: true}, function(err,client){
                                         response.json(new_friend + " is now your friend!");
                                         console.log(new_friend + " is now your friend!"); //friend added!
                                         response.end();
+                                    });
+                                    
+                                    //firebase db friend addition
+                                    b = 0;
+                                    ref.child("users").once('value', function(snapshot) {
+                                        var list = snapshot.val();
+                                        var keys = Object.keys(list);
+                                        var user_name;
+                                        for (var i = 0; i < keys.length && b === 0; i++) {
+                                            var k = keys[i];
+                                            user_name = list[k].username;
+                                            if(user_name === new_friend) b = 1;
+                                        }
+                                        var u = ref.child("users").child(keys[i-1]);
+                                        u.update({
+                                            "friends_id": friends2
+                                        });
                                     });
                                 }
                             });
@@ -262,7 +529,7 @@ MongoClient.connect(url,{useNewUrlParser: true}, function(err,client){
                     db.collection("users").findOne({'username': username},function(err, res) {
                         //connection to our collection and making a query to find if the friend's username provided exists
                         db.collection("users").find({'username': new_friend}).count(function(err, number) {
-                            if(number == 0) {
+                            if(number === 0) {
                                 response.json("This username does not exist"); //if the username is not found, it finishes
                                 console.log("This username does not exist");
                                 response.end();
@@ -311,7 +578,7 @@ MongoClient.connect(url,{useNewUrlParser: true}, function(err,client){
                     db.collection("users").findOne({'username': username},function(err, res) {
                         //connection to our collection and making a query to find if the friend's username provided exists
                         db.collection("users").find({'username': new_friend}).count(function(err, number) {
-                            if(number == 0) {
+                            if(number === 0) {
                                 response.json("This username does not exist"); //if the username is not found, it finishes
                                 console.log("This username does not exist");
                                 response.end();
@@ -337,12 +604,54 @@ MongoClient.connect(url,{useNewUrlParser: true}, function(err,client){
                                     var newfriend = { $set: {'friends_id': friends } };
                                     var my_query = { 'username': username };
                                     db.collection("users").updateOne(my_query, newfriend, function(err2, res2) {}); //update friends list from username
+                                    
+                                    //firebase db friend deletion
+                                    var b = 0;
+                                    ref.child("users").once('value', function(snapshot) {
+                                        var list = snapshot.val();
+                                        var keys = Object.keys(list);
+                                        var user_name;
+                                        console.log(keys);
+                                        for (var i = 0; i < keys.length && b === 0; i++) {
+                                            var k = keys[i];
+                                            console.log(list[k]);
+                                            user_name = list[k].username;
+                                            console.log(user_name, username);
+                                            if(user_name === username) b = 1;
+                                        }
+                                        var u = ref.child("users").child(keys[i-1]);
+                                        u.update({
+                                            "friends_id": friends
+                                        });
+                                    });
+                                                                                                            
                                     var newfriend2 = { $set: {'friends_id': fri2 } };
                                     var my_query2 = { 'username': new_friend };
                                     db.collection("users").updateOne(my_query2, newfriend2, function(err2, res2) {
                                             response.json(new_friend + " is no longer your friend"); //update friends list from new_friend
                                             console.log(new_friend + " is no longer your friend"); 
                                             response.end();
+                                    });
+                                    
+                                    //firebase db friend deletion
+                                    b = 0;
+                                    ref.child("users").once('value', function(snapshot) {
+                                        var list = snapshot.val();
+                                        var keys = Object.keys(list);
+                                        var user_name;
+                                        console.log(keys);
+                                        for (var i = 0; i < keys.length && b === 0; i++) {
+                                            var k = keys[i];
+                                            console.log(list[k]);
+                                            user_name = list[k].username;
+                                            console.log(user_name, new_friend);
+                                            if(user_name === new_friend) b = 1;
+                                        }
+                                        console.log(user_name);
+                                        var u = ref.child("users").child(keys[i-1]);
+                                        u.update({
+                                            "friends_id": fri2
+                                        });
                                     });
                                         }
                                     });
@@ -363,7 +672,7 @@ MongoClient.connect(url,{useNewUrlParser: true}, function(err,client){
             
             //connection to our collection and making a query to search the user
             db.collection("users").find({'username': {'$regex': friend}}, {projection: {_id: 0, username: 1} }).toArray(function(err, res) {
-                    if(res.length == 0) {
+                    if(res.length === 0) {
                         response.json("This username does not exist"); //if the username is not found, it finishes
                         console.log("This username does not exist");
                         response.end();
@@ -386,7 +695,7 @@ MongoClient.connect(url,{useNewUrlParser: true}, function(err,client){
             
             //connection to our collection and making a query to search the user
             db.collection("users").find({'username': username}, {projection: {_id: 0, friends_id: 1} }).toArray(function(err, res) {
-                    if(res[0].friends_id.length == 0) {
+                    if(res[0].friends_id.length === 0) {
                         response.json("You have no friends. Don't worry, you can still practise some sport :)"); //if the username has no friends, it finishes
                         console.log("You have no friends. Don't worry, you can still practise some sport :)");
                         response.end();
@@ -410,7 +719,7 @@ MongoClient.connect(url,{useNewUrlParser: true}, function(err,client){
             
             //connection to our collection and making a query to search the user
             db.collection("users").find({'username': username}, {projection: {_id: 0, friends_requests: 1} }).toArray(function(err, res) {
-                    if(res[0].friends_requests.length == 0) {
+                    if(res[0].friends_requests.length === 0) {
                         response.json("You have no friend requests right now. Try to search for new people :)"); //if the username has no friends, it finishes
                         console.log("You have no friend requests right now. Try to search for new people :)");
                         response.end();
@@ -460,7 +769,7 @@ MongoClient.connect(url,{useNewUrlParser: true}, function(err,client){
             
             //connection to our collection and making a query to find if the username provided does not exists
             db.collection('users').find({'username': username}).count(function(err, number){ 
-                if(number == 0)
+                if(number === 0)
                 {
                     response.json('This username does not exist'); //if username does not exists, its not added into DB
                     console.log('This username does not exist');
@@ -490,7 +799,7 @@ MongoClient.connect(url,{useNewUrlParser: true}, function(err,client){
             var mysort = {date: -1};
             //connection to our collection and making a query to search the user
             db.collection("activities").find({'sport': sport}, {projection: {_id: 0, username: 0} }).sort(mysort).toArray(function(err, res) {
-                    if(res.length == 0) {
+                    if(res.length === 0) {
                         response.json("You do not have any " + sport + " activities. Come on and give it a try!"); //if the username has no activities, it finishes
                         console.log("You do not have any " + sport + " activities. Come on and give it a try!");
                         response.end();
@@ -514,7 +823,7 @@ MongoClient.connect(url,{useNewUrlParser: true}, function(err,client){
             var mysort = {totaltime: -1};
             //connection to our collection and making a query to search the user
             db.collection("activities").find({'sport': sport}, {projection: {_id: 0, username: 0} }).sort(mysort).toArray(function(err, res) {
-                    if(res.length == 0) {
+                    if(res.length === 0) {
                         response.json("You do not have any " + sport + " activities. Come on and give it a try!"); //if the username has no activities, it finishes
                         console.log("You do not have any " + sport + " activities. Come on and give it a try!");
                         response.end();
@@ -538,7 +847,7 @@ MongoClient.connect(url,{useNewUrlParser: true}, function(err,client){
             var mysort = {kcal: -1};
             //connection to our collection and making a query to search the user
             db.collection("activities").find({'sport': sport}, {projection: {_id: 0, username: 0} }).sort(mysort).toArray(function(err, res) {
-                    if(res.length == 0) {
+                    if(res.length === 0) {
                         response.json("You do not have any " + sport + " activities. Come on and give it a try!"); //if the username has no activities, it finishes
                         console.log("You do not have any " + sport + " activities. Come on and give it a try!");
                         response.end();
@@ -562,7 +871,7 @@ MongoClient.connect(url,{useNewUrlParser: true}, function(err,client){
             var mysort = {kms: -1};
             //connection to our collection and making a query to search the user
             db.collection("activities").find({'sport': sport}, {projection: {_id: 0, username: 0} }).sort(mysort).toArray(function(err, res) {
-                    if(res.length == 0) {
+                    if(res.length === 0) {
                         response.json("You do not have any " + sport + " activities. Come on and give it a try!"); //if the username has no activities, it finishes
                         console.log("You do not have any " + sport + " activities. Come on and give it a try!");
                         response.end();
